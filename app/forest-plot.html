@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Meta Workbench — Forest Plot</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: 12px; color: #1a1a1a; background: #fff; }
+  h1 { font-size: 15px; margin: 0 0 4px; color: #0b5394; }
+  .sub { font-size: 12.5px; color: #555; margin: 0 0 10px; line-height: 1.5; }
+  .stats { background: #f7fafd; border: 1px solid #d7e5f2; border-radius: 8px; padding: 9px 12px; font-size: 13px; line-height: 1.6; margin-top: 10px; }
+  .empty { color: #666; font-size: 13.5px; line-height: 1.6; }
+  svg { width: 100%; height: auto; display: block; }
+</style>
+</head>
+<body>
+<h1>Forest plot</h1>
+<p class="sub">Meta Workbench — pooled by inverse variance; random effects use the DerSimonian–Laird estimator.</p>
+<div id="plot"><p class="empty" id="status">Waiting for a forest_plot result from the host…<br>
+In hosts without MCP Apps UI support nothing is lost: the forest_plot tool returns the same
+plot as an SVG document plus the pooled numbers as text.</p></div>
+<div class="stats" id="stats" hidden></div>
+
+<script>
+(function () {
+  "use strict";
+  var PROTOCOL_VERSION = "2026-01-26";
+
+  // ---------- minimal forest-plot renderer (from structuredContent) ----------
+  var Z975 = 1.959963984540054;
+  function esc(t) { return String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+  function fmt(x, d) { return isFinite(x) ? x.toFixed(d == null ? 2 : d) : "—"; }
+  function fmtP(p) { if (!isFinite(p)) return "—"; return p < 0.001 ? "<0.001" : p.toFixed(3); }
+
+  var MEASURES = {
+    OR:  { log: true,  long: "Odds Ratio",          short: "OR" },
+    RR:  { log: true,  long: "Risk Ratio",           short: "RR" },
+    MD:  { log: false, long: "Mean Difference",      short: "MD" },
+    SMD: { log: false, long: "Std. Mean Difference", short: "SMD" }
+  };
+
+  function niceTicks(lo, hi, log) {
+    var ticks = [], i, v;
+    if (log) {
+      var cand = [0.1, 0.2, 0.5, 1, 1.5, 2, 3, 5, 10];
+      for (i = 0; i < cand.length; i++) if (cand[i] >= lo && cand[i] <= hi) ticks.push(cand[i]);
+      if (!ticks.length) ticks = [lo, 1, hi];
+      return ticks;
+    }
+    var range = hi - lo, rough = range / 5, mag = Math.pow(10, Math.floor(Math.log10(rough)));
+    var norm = rough / mag, step;
+    if (norm < 1.5) step = mag; else if (norm < 3.5) step = 2 * mag; else if (norm < 7.5) step = 5 * mag; else step = 10 * mag;
+    for (v = Math.ceil(lo / step) * step; v <= hi + 1e-12; v += step) ticks.push(parseFloat(v.toPrecision(10)));
+    return ticks;
+  }
+
+  function render(data) {
+    var M = MEASURES[data.measure] || MEASURES.OR;
+    var studies = data.studies || [];
+    var plotEl = document.getElementById("plot");
+    var statsEl = document.getElementById("stats");
+    if (!studies.length) { plotEl.innerHTML = '<p class="empty">No studies in this result.</p>'; return; }
+
+    var aLo = 0, aHi = 0;
+    function A(v) { return M.log ? Math.log(v) : v; }
+    studies.forEach(function (s) { aLo = Math.min(aLo, A(s.ciLower)); aHi = Math.max(aHi, A(s.ciUpper)); });
+    [data.fixedEffect, data.randomEffectsDL].forEach(function (p) {
+      if (p) { aLo = Math.min(aLo, A(p.ciLower)); aHi = Math.max(aHi, A(p.ciUpper)); }
+    });
+    var pad = (aHi - aLo) * 0.06 || 0.1; aLo -= pad; aHi += pad;
+
+    var W = 1000, labelX = 218, plotX0 = 345, plotX1 = 730, ciX = 748, wX = 988;
+    var rowH = 27, headH = 44, firstY = headH + rowH / 2;
+    var poolY0 = headH + studies.length * rowH + 14;
+    var axisY = poolY0 + 2 * 30 + 16, H = axisY + 46;
+    function X(a) { return plotX0 + (a - aLo) / (aHi - aLo) * (plotX1 - plotX0); }
+    function Xd(v) { return X(A(v)); }
+    var ticks = niceTicks(M.log ? Math.exp(aLo) : aLo, M.log ? Math.exp(aHi) : aHi, M.log);
+
+    var s = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + W + " " + H + '">';
+    s += '<rect x="0" y="0" width="' + W + '" height="' + H + '" fill="#ffffff"/>';
+    s += '<text x="0" y="26" font-size="14" font-weight="bold" fill="#111">Study</text>';
+    s += '<text x="' + ((plotX0 + plotX1) / 2) + '" y="26" text-anchor="middle" font-size="14" font-weight="bold" fill="#111">' + M.long + "</text>";
+    s += '<text x="' + ciX + '" y="26" font-size="14" font-weight="bold" fill="#111">' + M.short + " [95% CI]</text>";
+    s += '<text x="' + wX + '" y="26" text-anchor="end" font-size="14" font-weight="bold" fill="#111">Weight</text>';
+    s += '<line x1="0" y1="36" x2="' + W + '" y2="36" stroke="#333" stroke-width="1.2"/>';
+    s += '<line x1="' + X(0) + '" y1="38" x2="' + X(0) + '" y2="' + axisY + '" stroke="#999" stroke-width="1" stroke-dasharray="5 4"/>';
+    var maxW = 0;
+    studies.forEach(function (st) { maxW = Math.max(maxW, st.weightPctRandom || 0); });
+    studies.forEach(function (st, idx) {
+      var cy = firstY + idx * rowH;
+      var wpct = st.weightPctRandom || 0;
+      s += '<text x="' + labelX + '" y="' + (cy + 5) + '" text-anchor="end" font-size="13.5" fill="#111">' + esc(st.name) + "</text>";
+      var lx = Math.max(Xd(st.ciLower), plotX0), rx = Math.min(Xd(st.ciUpper), plotX1), cx = Xd(st.effect);
+      s += '<line x1="' + lx + '" y1="' + cy + '" x2="' + rx + '" y2="' + cy + '" stroke="#333" stroke-width="1.6"/>';
+      var side = Math.max(5, 17 * Math.sqrt(wpct / (maxW || 1)));
+      s += '<rect x="' + (cx - side / 2) + '" y="' + (cy - side / 2) + '" width="' + side + '" height="' + side + '" fill="#0b5394"/>';
+      s += '<text x="' + ciX + '" y="' + (cy + 5) + '" font-size="13.5" fill="#111">' + fmt(st.effect) + " [" + fmt(st.ciLower) + ", " + fmt(st.ciUpper) + "]</text>";
+      s += '<text x="' + wX + '" y="' + (cy + 5) + '" text-anchor="end" font-size="13.5" fill="#111">' + fmt(wpct, 1) + "%</text>";
+    });
+    s += '<line x1="0" y1="' + (poolY0 - 8) + '" x2="' + W + '" y2="' + (poolY0 - 8) + '" stroke="#333" stroke-width="1.2"/>';
+    function diamond(p, label, cy) {
+      if (!p) return;
+      var cx = Xd(p.estimate), lx = Math.max(Xd(p.ciLower), plotX0), rx = Math.min(Xd(p.ciUpper), plotX1), h = 10;
+      s += '<text x="' + labelX + '" y="' + (cy + 5) + '" text-anchor="end" font-size="13.5" font-weight="bold" fill="#111">' + label + "</text>";
+      s += '<polygon points="' + lx + "," + cy + " " + cx + "," + (cy - h) + " " + rx + "," + cy + " " + cx + "," + (cy + h) + '" fill="#0b5394"/>';
+      s += '<text x="' + ciX + '" y="' + (cy + 5) + '" font-size="13.5" font-weight="bold" fill="#111">' + fmt(p.estimate) + " [" + fmt(p.ciLower) + ", " + fmt(p.ciUpper) + "]</text>";
+    }
+    diamond(data.fixedEffect, "Total (fixed-effect)", poolY0 + 11);
+    diamond(data.randomEffectsDL, "Total (random-effects)", poolY0 + 41);
+    s += '<line x1="' + plotX0 + '" y1="' + axisY + '" x2="' + plotX1 + '" y2="' + axisY + '" stroke="#333" stroke-width="1.2"/>';
+    ticks.forEach(function (t) {
+      var x = Xd(t);
+      s += '<line x1="' + x + '" y1="' + axisY + '" x2="' + x + '" y2="' + (axisY + 6) + '" stroke="#333" stroke-width="1.2"/>';
+      s += '<text x="' + x + '" y="' + (axisY + 22) + '" text-anchor="middle" font-size="12.5" fill="#333">' + (M.log ? String(parseFloat(t.toPrecision(2))) : String(parseFloat(t.toPrecision(6)))) + "</text>";
+    });
+    s += '<text x="' + ((plotX0 + plotX1) / 2) + '" y="' + (axisY + 42) + '" text-anchor="middle" font-size="12.5" fill="#555">' + M.long + (M.log ? " (log scale)" : "") + "</text>";
+    s += "</svg>";
+    plotEl.innerHTML = s;
+
+    var het = data.heterogeneity || {};
+    statsEl.hidden = false;
+    statsEl.innerHTML =
+      "Random-effects (DL): " + M.short + " = " + fmt(data.randomEffectsDL.estimate, 3) +
+      " [95% CI " + fmt(data.randomEffectsDL.ciLower, 3) + " to " + fmt(data.randomEffectsDL.ciUpper, 3) + "], p = " + fmtP(data.randomEffectsDL.pValue) + "<br>" +
+      "Fixed-effect: " + M.short + " = " + fmt(data.fixedEffect.estimate, 3) +
+      " [95% CI " + fmt(data.fixedEffect.ciLower, 3) + " to " + fmt(data.fixedEffect.ciUpper, 3) + "]<br>" +
+      "Heterogeneity: Q = " + fmt(het.Q, 2) + " (df = " + het.df + "), I² = " + fmt(het.iSquaredPct, 1) + "%, τ² = " + fmt(het.tauSquared, 4);
+  }
+
+  // ---------- MCP Apps bridge (postMessage JSON-RPC, per MCP Apps spec) ----------
+  var msgId = 0;
+  var pending = {};
+  function send(msg) { window.parent.postMessage(msg, "*"); }
+  function request(method, params) {
+    return new Promise(function (resolve) {
+      var id = ++msgId;
+      pending[id] = resolve;
+      send({ jsonrpc: "2.0", id: id, method: method, params: params || {} });
+    });
+  }
+  function notify(method, params) { send({ jsonrpc: "2.0", method: method, params: params || {} }); }
+
+  window.addEventListener("message", function (ev) {
+    var m = ev.data;
+    if (!m || m.jsonrpc !== "2.0") return;
+    if (m.id != null && pending[m.id]) { var r = pending[m.id]; delete pending[m.id]; r(m.result); return; }
+    if (m.method === "ui/notifications/tool-result") {
+      var sc = m.params && m.params.structuredContent;
+      if (sc) render(sc);
+    }
+  });
+
+  // Demo mode for manual testing outside a host: ?demo=1
+  if (/[?&]demo=1/.test(location.search)) {
+    // The six demo studies of the web tool; pooled values are the server's own
+    // output for this dataset (cross-checked in test/selftest.mjs).
+    render({
+      measure: "OR",
+      fixedEffect: { estimate: 0.813, ciLower: 0.720, ciUpper: 0.918, pValue: 0.001 },
+      randomEffectsDL: { estimate: 0.802, ciLower: 0.676, ciUpper: 0.951, pValue: 0.016 },
+      heterogeneity: { Q: 9.29, df: 5, iSquaredPct: 46.2, tauSquared: 0.0205 },
+      studies: [
+        { name: "Alvarez 2019", effect: 0.55, ciLower: 0.38, ciUpper: 0.80, weightPctRandom: 13.4 },
+        { name: "Chen 2020", effect: 0.92, ciLower: 0.68, ciUpper: 1.24, weightPctRandom: 17.2 },
+        { name: "Okafor 2021", effect: 0.64, ciLower: 0.41, ciUpper: 0.99, weightPctRandom: 10.7 },
+        { name: "Novak 2018", effect: 1.08, ciLower: 0.79, ciUpper: 1.48, weightPctRandom: 16.4 },
+        { name: "Singh 2022", effect: 0.78, ciLower: 0.60, ciUpper: 1.01, weightPctRandom: 19.9 },
+        { name: "Meyer 2023", effect: 0.83, ciLower: 0.66, ciUpper: 1.04, weightPctRandom: 22.3 }
+      ]
+    });
+  } else {
+    request("ui/initialize", {
+      appInfo: { name: "Meta Workbench Forest Plot", version: "0.1.0" },
+      appCapabilities: {},
+      protocolVersion: PROTOCOL_VERSION
+    }).then(function () { notify("ui/notifications/initialized"); });
+  }
+})();
+</script>
+</body>
+</html>
