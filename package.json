@@ -1,0 +1,22 @@
+{
+  "name": "metaworkbench-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "MCP server for Meta Workbench: sample size, forest plot, RoB 2 traffic light, PRISMA 2020 diagram — with an MCP Apps UI for the forest plot.",
+  "bin": {
+    "metaworkbench-mcp": "./server.mjs"
+  },
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node test/selftest.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/ext-apps": "^2.0.4",
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "zod": "^4.6.7"
+  }
+}
