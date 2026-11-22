@@ -19,10 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-Push-time note (not part of the license text): when this file is pushed to the
-GitHub repository as `LICENSE`, also add `"license": "MIT"` to package.json so
-the repository metadata and the license file agree. Neither change has been
-made in the repository yet — this pack is local preparation only.
